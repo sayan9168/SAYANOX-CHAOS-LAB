@@ -4,17 +4,25 @@
 
 An interactive, browser-first simulation laboratory for exploring chaos, emergence, and complex systems. Everything runs locally in the browser — no backend and no paid AI API.
 
-## ✨ Features
+## Features
 
 - Real-time particle/agent simulation on Canvas
 - Live controls for gravity, population, randomness, and speed
 - Balanced, Storm, and Order experiment presets
 - Pause/resume simulation
 - Responsive desktop and mobile interface
-- Lightweight React + TypeScript + Vite stack
-- Automated typecheck, tests, and production build with GitHub Actions
+- Deterministic, unit-tested simulation utilities
+- Production typecheck, tests, and build checks
+- GitHub Actions CI
+- GitHub Pages deployment workflow
+- No backend, database, secret, or paid AI API required
 
-## 🚀 Run locally
+## Requirements
+
+- Node.js 22+
+- npm 10+
+
+## Run locally
 
 ```bash
 npm install
@@ -31,9 +39,13 @@ npm test
 npm run build
 ```
 
+## Deployment
+
+The repository includes `.github/workflows/deploy.yml` for GitHub Pages. Enable GitHub Pages with **GitHub Actions** as the deployment source in the repository settings before the first deployment.
+
 ## Architecture
 
-The application is intentionally client-side. The simulation loop uses the browser Canvas API and `requestAnimationFrame`; React owns controls and application state.
+The application is intentionally client-side. React owns UI state and controls, while the browser Canvas API and `requestAnimationFrame` run the visual simulation. Pure simulation helpers live in `src/simulation.ts` so they can be tested without a browser.
 
 ## License
 
