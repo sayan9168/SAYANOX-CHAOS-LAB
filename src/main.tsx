@@ -1,4 +1,188 @@
-import React,{useEffect,useRef,useState} from 'react'; import {createRoot} from 'react-dom/client'; import './style.css';
-type P={gravity:number,population:number,randomness:number,speed:number};
-const presets:{name:string;p:P}[]=[{name:'Balanced',p:{gravity:.55,population:70,randomness:.35,speed:1}},{name:'Storm',p:{gravity:.15,population:120,randomness:.9,speed:1.8}},{name:'Order',p:{gravity:.9,population:45,randomness:.05,speed:.6}}];
-function App(){const canvas=useRef<HTMLCanvasElement>(null);const [p,setP]=useState<P>(presets[0].p);const [running,setRunning]=useState(true);const [count,setCount]=useState(70);useEffect(()=>{let raf=0;const c=canvas.current!,x=c.getContext('2d')!;let pts=Array.from({length:140},(_,i)=>({x:Math.random()*800,y:Math.random()*500,vx:(Math.random()-.5)*2,vy:(Math.random()-.5)*2,r:1.5+Math.random()*2,id:i}));const loop=()=>{const d=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;if(c.width!==w*d||c.height!==h*d)c.width=w*d,c.height=h*d;x.setTransform(d,0,0,d,0,0);x.fillStyle='#070a11';x.fillRect(0,0,w,h);const n=Math.min(140,Math.max(10,Math.round(p.population)));pts.slice(0,n).forEach(a=>{let ax=0,ay=p.gravity*.12;for(let b of pts.slice(0,n)){if(a===b)continue;const dx=b.x-a.x,dy=b.y-a.y,ds=dx*dx+dy*dy;if(ds>25&&ds<18000){const f=(p.gravity*0.02)/Math.sqrt(ds);ax+=dx*f;ay+=dy*f}}a.vx+=ax+(Math.random()-.5)*p.randomness*.08;a.vy+=ay+(Math.random()-.5)*p.randomness*.08;a.vx*=.995;a.vy*=.995;a.x=(a.x+a.vx*p.speed+w)%w;a.y=(a.y+a.vy*p.speed+h)%h;});for(let i=0;i<n;i++){const a=pts[i];x.beginPath();x.arc(a.x,a.y,a.r,0,Math.PI*2);x.fillStyle='rgba(110,220,255,.85)';x.fill();}setCount(n);if(running)raf=requestAnimationFrame(loop)};loop();return()=>cancelAnimationFrame(raf)},[p,running]);const update=(k:keyof P,v:number)=>setP({...p,[k]:v});return <main><header><div><span className="eyebrow">SAYANOX / EXPERIMENTAL SYSTEMS</span><h1>CHAOS <i>LAB</i></h1><p>Change the rules. Watch the system break.</p></div><button onClick={()=>setRunning(!running)}>{running?'PAUSE':'RESUME'}</button></header><section className="lab"><div className="canvasWrap"><canvas ref={canvas}/><div className="badge">● LIVE SIMULATION</div></div><aside><h2>CONTROL DECK</h2>{(['gravity','population','randomness','speed'] as const).map(k=><label key={k}><span>{k}<b>{p[k]}</b></span><input type="range" min={k==='population'?10:0} max={k==='population'?140:k==='speed'?3:1} step={k==='population'?1:.01} value={p[k]} onChange={e=>update(k,+e.target.value)}/></label>)}<h3>PRESETS</h3><div className="presets">{presets.map(q=><button key={q.name} onClick={()=>setP(q.p)}>{q.name}</button>)}</div><div className="stats"><span>AGENTS <b>{count}</b></span><span>MODE <b>PARTICLE</b></span><span>ENGINE <b>CLIENT</b></span></div></aside></section><footer><span>v1.0.0 • deterministic-free experimental engine</span><span>100% browser-based • no API • no backend</span></footer></main>};createRoot(document.getElementById('root')!).render(<React.StrictMode><App/></React.StrictMode>);
+import { useEffect, useRef, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import './style.css';
+import { createPoints, normalizeParams, type SimulationParams, wrap } from './simulation';
+
+type Preset = { name: string; params: SimulationParams };
+
+const presets: Preset[] = [
+  { name: 'Balanced', params: { gravity: 0.55, population: 70, randomness: 0.35, speed: 1 } },
+  { name: 'Storm', params: { gravity: 0.15, population: 120, randomness: 0.9, speed: 1.8 } },
+  { name: 'Order', params: { gravity: 0.9, population: 45, randomness: 0.05, speed: 0.6 } },
+];
+
+const parameterKeys = ['gravity', 'population', 'randomness', 'speed'] as const;
+
+function App() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [params, setParams] = useState<SimulationParams>(presets[0].params);
+  const [running, setRunning] = useState(true);
+  const [count, setCount] = useState(presets[0].params.population);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const context = canvas.getContext('2d');
+    if (!context) return;
+
+    let animationFrame = 0;
+    let lastCount = -1;
+    let points = createPoints(140, 800, 500);
+
+    const resizeCanvas = () => {
+      const width = Math.max(1, canvas.clientWidth);
+      const height = Math.max(1, canvas.clientHeight);
+      const ratio = Math.min(window.devicePixelRatio || 1, 2);
+      const pixelWidth = Math.floor(width * ratio);
+      const pixelHeight = Math.floor(height * ratio);
+
+      if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+        canvas.width = pixelWidth;
+        canvas.height = pixelHeight;
+      }
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      return { width, height };
+    };
+
+    const draw = () => {
+      const { width, height } = resizeCanvas();
+      const n = params.population;
+      context.fillStyle = '#070a11';
+      context.fillRect(0, 0, width, height);
+
+      for (let i = 0; i < n; i += 1) {
+        const point = points[i];
+        let ax = 0;
+        let ay = params.gravity * 0.12;
+
+        for (let j = 0; j < n; j += 1) {
+          if (i === j) continue;
+          const other = points[j];
+          const dx = other.x - point.x;
+          const dy = other.y - point.y;
+          const distanceSquared = dx * dx + dy * dy;
+
+          if (distanceSquared > 25 && distanceSquared < 18000) {
+            const force = (params.gravity * 0.02) / Math.sqrt(distanceSquared);
+            ax += dx * force;
+            ay += dy * force;
+          }
+        }
+
+        point.vx += ax + (Math.random() - 0.5) * params.randomness * 0.08;
+        point.vy += ay + (Math.random() - 0.5) * params.randomness * 0.08;
+        point.vx *= 0.995;
+        point.vy *= 0.995;
+        point.x = wrap(point.x + point.vx * params.speed, width);
+        point.y = wrap(point.y + point.vy * params.speed, height);
+      }
+
+      for (let i = 0; i < n; i += 1) {
+        const point = points[i];
+        context.beginPath();
+        context.arc(point.x, point.y, point.radius, 0, Math.PI * 2);
+        context.fillStyle = 'rgba(110,220,255,.85)';
+        context.fill();
+      }
+
+      if (lastCount !== n) {
+        lastCount = n;
+        setCount(n);
+      }
+
+      if (running) animationFrame = requestAnimationFrame(draw);
+    };
+
+    const handleResize = () => resizeCanvas();
+    window.addEventListener('resize', handleResize);
+    draw();
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [params, running]);
+
+  const update = (key: keyof SimulationParams, value: number) => {
+    setParams((current) => normalizeParams({ ...current, [key]: value }));
+  };
+
+  const applyPreset = (preset: Preset) => setParams(normalizeParams(preset.params));
+
+  return (
+    <main>
+      <header>
+        <div>
+          <span className="eyebrow">SAYANOX / EXPERIMENTAL SYSTEMS</span>
+          <h1>CHAOS <i>LAB</i></h1>
+          <p>Change the rules. Watch the system break.</p>
+        </div>
+        <button type="button" onClick={() => setRunning((current) => !current)}>
+          {running ? 'PAUSE' : 'RESUME'}
+        </button>
+      </header>
+
+      <section className="lab">
+        <div className="canvasWrap">
+          <canvas ref={canvasRef} aria-label="Live chaos particle simulation" />
+          <div className="badge">● LIVE SIMULATION</div>
+        </div>
+
+        <aside>
+          <h2>CONTROL DECK</h2>
+          {parameterKeys.map((key) => {
+            const isPopulation = key === 'population';
+            const isSpeed = key === 'speed';
+            const max = isPopulation ? 140 : isSpeed ? 3 : 1;
+            const min = isPopulation ? 10 : 0;
+            const step = isPopulation ? 1 : 0.01;
+
+            return (
+              <label key={key}>
+                <span>
+                  {key}
+                  <b>{params[key]}</b>
+                </span>
+                <input
+                  type="range"
+                  min={min}
+                  max={max}
+                  step={step}
+                  value={params[key]}
+                  aria-label={`${key} control`}
+                  onChange={(event) => update(key, Number(event.target.value))}
+                />
+              </label>
+            );
+          })}
+
+          <h3>PRESETS</h3>
+          <div className="presets">
+            {presets.map((preset) => (
+              <button type="button" key={preset.name} onClick={() => applyPreset(preset)}>
+                {preset.name}
+              </button>
+            ))}
+          </div>
+
+          <div className="stats">
+            <span>AGENTS <b>{count}</b></span>
+            <span>MODE <b>PARTICLE</b></span>
+            <span>ENGINE <b>CLIENT</b></span>
+          </div>
+        </aside>
+      </section>
+
+      <footer>
+        <span>v1.0.1 • browser simulation engine</span>
+        <span>100% browser-based • no API • no backend</span>
+      </footer>
+    </main>
+  );
+}
+
+const rootElement = document.getElementById('root');
+if (!rootElement) throw new Error('Root element #root was not found.');
+
+createRoot(rootElement).render(<App />);
